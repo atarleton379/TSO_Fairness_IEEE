@@ -1,0 +1,31 @@
+{
+  "skip_day_ahead": true,
+  "zones": {
+    "1": [1],
+    "2": [2]
+  },
+  "generators": {
+    "1": {"node": 1, "P_max": 100},
+    "2": {"node": 2, "P_max": 100}
+  },
+  "wind_farms": {},
+  "demands": {
+    "load_distribution": {
+      "1": 0.5,
+      "2": 0.5
+    },
+    "bidding_prices": {
+      "1": 40,
+      "2": 40
+    },
+    "load_location": {
+      "1": 1,
+      "2": 2
+    }
+  },
+  "lines": {},
+  "atc": {
+    "(1,2)": 80,
+    "(2,1)": 80
+  }
+}

@@ -3,10 +3,17 @@ import os
 from datetime import datetime
 
 
+def _safe_key(k):
+    """Convert a dict key to a JSON-safe string if needed."""
+    if isinstance(k, tuple):
+        return str(k)
+    return k
+
+
 def _json_safe(value):
     """Convert nested values to JSON-safe Python primitives."""
     if isinstance(value, dict):
-        return {k: _json_safe(v) for k, v in value.items()}
+        return {_safe_key(k): _json_safe(v) for k, v in value.items()}
     if isinstance(value, list):
         return [_json_safe(v) for v in value]
     if isinstance(value, tuple):

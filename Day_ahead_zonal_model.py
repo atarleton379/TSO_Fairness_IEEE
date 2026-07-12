@@ -2,10 +2,10 @@ import gurobipy as gp
 from gurobipy import GRB
 import time
 
-from src.input import InputHandler
+from input import InputHandler
 
 
-class Model3Zonal:
+class DayAheadModel:
     """
     Single-hour day-ahead market clearing incl. network constraints. Nodes grouped into zones.
     """
@@ -269,10 +269,12 @@ class Model3Zonal:
         out_dict["social_welfare"] = self.model.ObjVal
 
         # inter-zonal flows
+        cross_zonal_flows = {}
         for pair in self.zone_pairs:
-            out_dict[f"zone_{pair[0]}_{pair[1]}_flow"] = self.model.getVarByName(
-                f"zone_{pair[0]}_{pair[1]}"
-            ).X
+            flow_val = self.model.getVarByName(f"zone_{pair[0]}_{pair[1]}").X
+            out_dict[f"zone_{pair[0]}_{pair[1]}_flow"] = flow_val
+            cross_zonal_flows[pair] = flow_val
+        out_dict["cross_zonal_flows"] = cross_zonal_flows
 
         # demand per zone
         out_dict["total_power_consumed"] = sum(

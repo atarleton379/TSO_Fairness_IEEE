@@ -1,70 +1,146 @@
+import os
+import re
+import sys
+
+import gurobipy as gp
+
 from input import InputHandler
-from model1 import Model1
-from model2 import Model2
-from model3_nodal import Model3Nodal
-from model3_zonal import Model3Zonal
-from model5 import Model5
-from model6 import Model6
-from model6_bonus import Model6Bonus
-from model6_bonus_split_bid import Model6Bonus_split_bid
+from model_helpers import load_input_file
+from Day_ahead_zonal_model import DayAheadModel
+from Standard_reserve_model import Standard_Reserve_Model
+from PF_Standard_reserve_model import PF_Standard_Reserve_Model
+from MMF_Standard_reserve_model import MMF_Standard_Reserve_Model
 from results_saver import save_results
-import numpy as np
-HOUR = 12
-HOURS = 24
-sensitivity_factor = 1
-inp_hndl = InputHandler()
-model1 = Model1(HOUR, inp_hndl)
-model2 = Model2(HOURS, inp_hndl)
-model3_nodal = Model3Nodal(HOUR, inp_hndl, sensitivity_factor)
-model3_zonal = Model3Zonal(HOUR, inp_hndl, sensitivity_factor)
-model5 = Model5(HOUR, inp_hndl)
-model6 = Model6(HOUR, inp_hndl)
-model6_bonus = Model6Bonus(HOUR, inp_hndl)
+from model_helpers import update_atc, ATC_calc, reference_incident_by_zone
+from visualizer import visualize_all_reserve_models
 
 
+def _coerce_atc_dict(raw):
+    """Convert scenario ATC mappings into directional tuples keyed by (u, v)."""
+    if not raw:
+        return {}
+
+    out = {}
+    for key, value in raw.items():
+        if isinstance(key, tuple):
+            u, v = key
+        elif isinstance(key, list):
+            u, v = key
+        elif isinstance(key, str):
+            cleaned = key.strip()
+            if cleaned.startswith("(") and cleaned.endswith(")"):
+                cleaned = cleaned[1:-1]
+            parts = re.split(r"[,\-\>]+", cleaned)
+            parts = [p.strip() for p in parts if p.strip()]
+            if len(parts) < 2:
+                continue
+            u, v = parts[0], parts[1]
+        else:
+            continue
+
+        try:
+            out[(int(u), int(v))] = float(value)
+        except ValueError:
+            continue
+    return out
 
 
-###### Sensitivity analysis iterators########
-# sensitivity_range = np.linspace(0.5, 1.5, 11)
-# model3_sens_analysis = {}
-# model4_sens_analysis = {}
-# sens_results = {}
-# for sens in sensitivity_range:
-#     model3_sens_analysis[sens] = Model3(HOUR, inp_hndl, sensitivity_factor=sens)
-#     sens_results[f"model3_sens_{sens}"] = model3_sens_analysis[sens].out_dict
-#     model4_sens_analysis[sens] = Model4(HOUR, inp_hndl, sensitivity_factor=sens)
-#     sens_results[f"model4_sens_{sens}"] = model4_sens_analysis[sens].out_dict
-# save_results(sens_results, base_folder="code/results/sensitivity", run_name="sensitivity")
+def _build_day_ahead_placeholder():
+    """Minimal placeholder output for toy runs that skip the day-ahead solve."""
+    return {
+        "cross_zonal_flows": {},
+        "social_welfare": 0.0,
+        "solve_time_seconds": 0.0,
+        "zone_1_price": 0.0,
+    }
 
-###### Terminal Output functions, can delete if in the way and definitely before submitting###########################################
-# #Model 1 outputs
-# print('Model 1 market clearing price')
-# print(model1.out_dict['market_clearing_price'])
 
-# #Model 3 outputs
-# print('Model 3 Nodal Prices')
-# for n in model3.Nodes:
-#     print(f"node {n} : {-model3.out_dict[f"node_{n}_price"]}")
-# print('Model 3 line flows')
-# for i in model3.Lines:
-#     print(f'line {i} : {model3.out_dict[f"line_{i}_flow"]}')
+class DummyDA:
+    def __init__(self):
+        self.out_dict = _build_day_ahead_placeholder()
 
-# #Model 4 Outputs
-# print('Model 4 zonal Prices')
-# for n in model4.Zones:
-#     print(f"node {n} : {-model4.out_dict[f"zone_{n}_price"]}")
-# print('Model 4 zone flows')
-# for pair in model4.zone_pairs:
-#     print(f"zone {pair} : {model4.out_dict[f"zone_{pair[0]}_{pair[1]}_flow"]}")
 
-save_results({
-    "model1": model1.out_dict,
-    "model2": model2.out_dict,
-    "model3_nodal": model3_nodal.out_dict,
-    "model3_zonal": model3_zonal.out_dict,
-    "model5": model5.out_dict,
-    "model6_bonus": model6_bonus.out_dict
-}, base_folder="code/results")
+def build_input_handler(scenario_file: str | None):
+    """
+    Build the input object.
 
-# model5.out_fig[0][0].savefig(f"{results_folder}/model5_balancing_merit_order.png", dpi=150)
-# model5.out_fig[1].savefig(f"{results_folder}/model5_revenue_breakdown.png", dpi=150)
+    - No scenario file: use InputHandler defaults.
+    - Scenario file: load JSON and override matching/default attributes.
+    """
+    inp_hndl = InputHandler()
+
+    if not scenario_file:
+        return inp_hndl
+
+    scenario = load_input_file(scenario_file)
+    for key, value in vars(scenario).items():
+        setattr(inp_hndl, key, value)
+
+    if hasattr(inp_hndl, "zones") and isinstance(inp_hndl.zones, dict):
+        inp_hndl.zones = {int(k): v for k, v in inp_hndl.zones.items()}
+
+    return inp_hndl
+
+
+def main():
+    gp.setParam("OutputFlag", 0)
+    gp.setParam("LogToConsole", 0)
+    gp.setParam("LicenseID", 2837159)
+
+    scenario_file = "toy_scenarios/toy_3zone.json"
+    hour = 12
+    sensitivity = 1
+    results_dir = "code/results"
+
+    inp_hndl = build_input_handler(scenario_file)
+
+    if getattr(inp_hndl, "skip_day_ahead", False):
+        day_ahead_zonal = DummyDA()
+        atc = _coerce_atc_dict(getattr(inp_hndl, "atc", {}))
+        if not atc:
+            atc = ATC_calc(inp_hndl.zones, inp_hndl.lines, symmetric=False)
+        congested_atc = atc
+    else:
+        day_ahead_zonal = DayAheadModel(hour, inp_hndl, sensitivity)
+        atc = ATC_calc(inp_hndl.zones, inp_hndl.lines, symmetric=False)
+        congested_atc = update_atc(atc, day_ahead_zonal.out_dict)
+
+    ri_by_zone = reference_incident_by_zone(inp_hndl)
+
+    std_reserve = Standard_Reserve_Model(hour, inp_hndl, congested_atc, ri_by_zone)
+    std_reserve_out = std_reserve.solve()
+
+    pf_reserve = PF_Standard_Reserve_Model(hour, inp_hndl, congested_atc, ri_by_zone)
+    pf_reserve_out = pf_reserve.solve()
+
+    mmf_reserve = MMF_Standard_Reserve_Model(hour, inp_hndl, congested_atc, ri_by_zone)
+    mmf_reserve_out = mmf_reserve.solve()
+
+    run_folder = save_results(
+        {
+            "day_ahead_zonal": day_ahead_zonal.out_dict,
+            "atc": atc,
+            "congested_atc": congested_atc,
+            "standard_reserve": std_reserve_out,
+            "pf_standard_reserve": pf_reserve_out,
+            "mmf_standard_reserve": mmf_reserve_out,
+        },
+        base_folder=results_dir,
+    )
+
+    visualize_all_reserve_models(
+        inp_hndl,
+        {
+            "day_ahead_zonal": day_ahead_zonal.out_dict,
+            "standard_reserve": std_reserve_out,
+            "pf_standard_reserve": pf_reserve_out,
+            "mmf_standard_reserve": mmf_reserve_out,
+            "atc": atc,
+            "congested_atc": congested_atc,
+        },
+        output_dir=run_folder,
+    )
+
+
+if __name__ == "__main__":
+    main()
