@@ -1,0 +1,14 @@
+constraint,row_zone,1,2,3,4
+define_sharing_available,,1.00001,-0.0,-0.0,1.00004
+define_sharing_benefit,,-0.0,-0.0,-0.0,-0.0
+limit_sharing_to_own_procurement,1.0,,1.00001,,
+limit_sharing_to_own_procurement,2.0,0.0,,-0.0,
+limit_sharing_to_own_procurement,3.0,,0.0,,0.0
+limit_sharing_to_own_procurement,4.0,,,1.00003,
+reserve_plus_sharing_covers_reference_incident,,-1.00001,0.0,0.0,-1.00004
+reserve_upper_bound,,0.0,-9.999999999843467e-06,0.0,0.0
+sharing_available_upper_bound,,0.0,0.0,0.0,0.0
+sharing_flow_upper_bound,1.0,,0.0,,
+sharing_flow_upper_bound,2.0,-0.0,,0.0,
+sharing_flow_upper_bound,3.0,,0.0,,-0.0
+sharing_flow_upper_bound,4.0,,,1.0000000000065512e-05,

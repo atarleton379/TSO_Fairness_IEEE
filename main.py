@@ -10,6 +10,7 @@ from Day_ahead_zonal_model import DayAheadModel
 from Standard_reserve_model import Standard_Reserve_Model
 from PF_Standard_reserve_model import PF_Standard_Reserve_Model
 from MMF_Standard_reserve_model import MMF_Standard_Reserve_Model
+from Alpha_Fair_Reserve_Model import Alpha_Fair_Reserve_Model
 from results_saver import save_results
 from model_helpers import update_atc, ATC_calc, reference_incident_by_zone
 from visualizer import visualize_all_reserve_models
@@ -87,10 +88,11 @@ def main():
     gp.setParam("LogToConsole", 0)
     gp.setParam("LicenseID", 2837159)
 
-    scenario_file = "toy_scenarios/toy_3zone.json"
+    scenario_file = "toy_scenarios/toy_4zone.json"
     hour = 12
     sensitivity = 1
     results_dir = "code/results"
+    alpha = 2.0
 
     inp_hndl = build_input_handler(scenario_file)
 
@@ -116,6 +118,9 @@ def main():
     mmf_reserve = MMF_Standard_Reserve_Model(hour, inp_hndl, congested_atc, ri_by_zone)
     mmf_reserve_out = mmf_reserve.solve()
 
+    alpha_reserve = Alpha_Fair_Reserve_Model(hour, inp_hndl, congested_atc, ri_by_zone, alpha=alpha)
+    alpha_reserve_out = alpha_reserve.solve()
+
     run_folder = save_results(
         {
             "day_ahead_zonal": day_ahead_zonal.out_dict,
@@ -124,9 +129,14 @@ def main():
             "standard_reserve": std_reserve_out,
             "pf_standard_reserve": pf_reserve_out,
             "mmf_standard_reserve": mmf_reserve_out,
+            "alpha_fair_reserve": alpha_reserve_out,
         },
         base_folder=results_dir,
     )
+
+    std_reserve.save_duals_csv(os.path.join(run_folder, "standard_reserve_duals.csv"))
+    if alpha_reserve.duals_table is not None:
+        alpha_reserve.save_duals_csv(os.path.join(run_folder, "alpha_fair_reserve_duals.csv"))
 
     visualize_all_reserve_models(
         inp_hndl,
@@ -135,6 +145,7 @@ def main():
             "standard_reserve": std_reserve_out,
             "pf_standard_reserve": pf_reserve_out,
             "mmf_standard_reserve": mmf_reserve_out,
+            "alpha_fair_reserve": alpha_reserve_out,
             "atc": atc,
             "congested_atc": congested_atc,
         },

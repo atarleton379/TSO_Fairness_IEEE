@@ -134,6 +134,8 @@ class MMF_Standard_Reserve_Model:
                 "sharing_available": {z: sa[z].X for z in self.Zones},
                 "sharing_benefit": {z: sb[z].X for z in self.Zones},
                 "sharing_flows": {(u, v): f[u, v].X for (u, v) in f},
+                "total_savings": sum(sb[z].X for z in self.Zones),
+                "total_procurement": sum(r[z].X for z in self.Zones)
             }
             print("Lexicographic max-min fairness solved.")
             print("Tier-fixed utilities:", tier_values)
